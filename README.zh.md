@@ -7,7 +7,7 @@
 
 # kratos-auth
 
-Kratos 认证中间件集合，支持路由范围管理和 APM 追踪。
+Kratos 认证中间件的基座包，提供各中间件共用的类型和工具函数。
 
 ---
 
@@ -21,13 +21,9 @@ Kratos 认证中间件集合，支持路由范围管理和 APM 追踪。
 
 ## 核心特性
 
-🎯 **令牌认证**: 简单和预配置的令牌认证，支持自定义验证
-⚡ **路由范围过滤**: 灵活的 INCLUDE/EXCLUDE 模式路由匹配
-🔄 **速率限制**: 基于 Redis 的分布式速率限制，支持基于上下文的 ID 提取
-🌍 **随机采样**: 概率性请求采样和阻断，支持可配置的概率
-📋 **超时管理**: 特定路由的选择性超时覆盖
-⏱️ **周期性限流**: 基于计数器的确定性请求采样
-🔍 **APM 追踪**: 内置 APM span 追踪，支持可配置命名
+🎯 **路由范围匹配**: 基于 INCLUDE/EXCLUDE 模式的路由匹配，提供 `RouteScope`、`SelectSide`、`Operation` 类型
+🔌 **Span Hook 接口**: 可插拔的追踪集成，通过 `SpanHook` / `NewSpanHookFunc` / `RunSpanHooks` 实现
+🛠️ **共享工具函数**: 如 `BooleanToNum` 等下游中间件包共用的公共函数
 
 ## 安装
 
@@ -35,274 +31,111 @@ Kratos 认证中间件集合，支持路由范围管理和 APM 追踪。
 go get github.com/yylego/kratos-auth/authkratos
 ```
 
-## 快速开始
+## 使用方式
 
-### 令牌认证
-
-```go
-import (
-    "github.com/yylego/kratos-auth/authkratostokens"
-    "github.com/yylego/kratos-auth/authkratosroutes"
-)
-
-// 使用用户名-令牌映射创建认证中间件
-cfg := authkratostokens.NewConfig(
-    authkratosroutes.NewInclude(
-        "/api.Service/CreateUser",
-        "/api.Service/UpdateUser",
-    ),
-    map[string]string{
-        "alice": "secret-token-123",
-        "bruce": "another-token-456",
-    },
-)
-
-middleware := authkratostokens.NewMiddleware(cfg, logger)
-```
-
-### 简单自定义认证
-
-```go
-import (
-    "github.com/yylego/kratos-auth/authkratossimple"
-    "github.com/yylego/kratos-auth/authkratosroutes"
-)
-
-// 自定义令牌验证函数
-checkToken := func(ctx context.Context, token string) (context.Context, *errors.Error) {
-    // 验证令牌并将账户数据注入上下文
-    if account := validateToken(token); account != nil {
-        ctx = context.WithValue(ctx, "account", account)
-        return ctx, nil
-    }
-    return ctx, errors.Unauthorized("INVALID_TOKEN", "token is invalid")
-}
-
-cfg := authkratossimple.NewConfig(
-    authkratosroutes.NewInclude("/api.Service/ProtectedMethod"),
-    checkToken,
-)
-
-middleware := authkratossimple.NewMiddleware(cfg, logger)
-```
-
-### 速率限制
-
-```go
-import (
-    "github.com/yylego/kratos-auth/ratekratoslimits"
-    "github.com/go-redis/redis_rate/v10"
-    "github.com/redis/go-redis/v9"
-)
-
-// 基于 Redis 的速率限制
-rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-limiter := redis_rate.NewLimiter(rdb)
-limit := redis_rate.PerMinute(100) // 每分钟 100 个请求
-
-// 从上下文中提取唯一 ID（例如账户 ID）
-keyFromCtx := func(ctx context.Context) (string, bool) {
-    if account, ok := ctx.Value("account").(string); ok {
-        return account, true
-    }
-    return "", false
-}
-
-cfg := ratekratoslimits.NewConfig(
-    authkratosroutes.NewInclude("/api.Service/ExpensiveOperation"),
-    limiter,
-    &limit,
-    keyFromCtx,
-)
-
-middleware := ratekratoslimits.NewMiddleware(cfg, logger)
-```
-
-### 随机采样
-
-```go
-import "github.com/yylego/kratos-auth/matchkratosrandom"
-
-// 随机匹配 60% 的请求
-cfg := matchkratosrandom.NewConfig(
-    authkratosroutes.NewExclude("/api.Service/HealthCheck"),
-    0.6, // 60% 采样率
-)
-
-matchFunc := matchkratosrandom.NewMatchFunc(cfg, logger)
-
-// 与选择器中间件一起使用
-middleware := selector.Server(yourMiddleware).Match(matchFunc).Build()
-```
-
-### 混沌测试
-
-```go
-import "github.com/yylego/kratos-auth/passkratosrandom"
-
-// 随机阻断 40% 的请求（放行率：60%）
-cfg := passkratosrandom.NewConfig(
-    authkratosroutes.NewInclude("/api.Service/TestMethod"),
-    0.6, // 60% 放行率
-)
-
-middleware := passkratosrandom.NewMiddleware(cfg, logger)
-```
-
-### 超时管理
-
-```go
-import (
-    "github.com/yylego/kratos-auth/fastkratoshandle"
-    "time"
-)
-
-// 对特定路由设置 5 秒超时
-cfg := fastkratoshandle.NewConfig(
-    authkratosroutes.NewInclude("/api.Service/QuickOperation"),
-    5*time.Second,
-)
-
-middleware := fastkratoshandle.NewMiddleware(cfg, logger)
-```
-
-### 周期性采样
-
-```go
-import "github.com/yylego/kratos-auth/matchkratosperiod"
-
-// 每 10 个请求匹配一次（10% 采样率）
-cfg := matchkratosperiod.NewConfig(
-    authkratosroutes.NewExclude("/api.Service/Monitoring"),
-    10, // 周期：每 10 个请求匹配一次
-)
-
-matchFunc := matchkratosperiod.NewMatchFunc(cfg, logger)
-```
-
-## 包概览
-
-| 包名                | 用途                                |
-| ------------------- | ----------------------------------- |
-| `authkratostokens`  | 预配置令牌认证，支持用户名-令牌映射 |
-| `authkratossimple`  | 自定义令牌验证，灵活的认证逻辑      |
-| `ratekratoslimits`  | 基于 Redis 的分布式速率限制         |
-| `passkratosrandom`  | 概率性请求阻断（混沌测试）          |
-| `fastkratoshandle`  | 特定路由的选择性超时覆盖            |
-| `matchkratosrandom` | 随机请求采样匹配函数                |
-| `matchkratosperiod` | 周期性请求采样（每 N 个请求）       |
-| `authkratosroutes`  | 路由范围匹配工具包                  |
-
-## 高级功能
-
-### 路由范围模式
-
-```go
-// INCLUDE 模式：仅匹配指定的操作
-include := authkratosroutes.NewInclude(
-    "/api.Service/CreateUser",
-    "/api.Service/UpdateUser",
-    "/api.Service/DeleteUser",
-)
-
-// EXCLUDE 模式：匹配除指定操作外的所有操作
-exclude := authkratosroutes.NewExclude(
-    "/api.Service/HealthCheck",
-    "/api.Service/Metrics",
-)
-
-// 在模式之间切换
-opposite := include.Opposite() // 转换成 EXCLUDE 模式
-```
-
-### APM 追踪
-
-```go
-// 使用默认 span 名称启用 APM 追踪
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithDefaultApmSpanName() // 使用 "auth-kratos-tokens"
-
-// 自定义 APM span 名称
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithApmSpanName("custom-auth-span").
-    WithApmMatchSuffix("-matching") // 后缀："custom-auth-span-matching"
-```
-
-### 调试模式
+### 路由范围匹配
 
 ```go
 import "github.com/yylego/kratos-auth/authkratos"
 
-// 启用调试日志
-authkratos.SetDebugMode(true)
+// INCLUDE 模式：仅匹配指定的操作
+scope := authkratos.NewInclude(
+    "/api.Service/CreateUser",
+    "/api.Service/UpdateUser",
+)
 
-// 每个中间件会输出详细的调试日志
-```
+// EXCLUDE 模式：匹配除指定操作外的所有操作
+scope := authkratos.NewExclude(
+    "/api.Service/HealthCheck",
+    "/api.Service/Metrics",
+)
 
-### 请求字段配置
-
-```go
-// 使用自定义请求字段名（默认："Authorization"）
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithFieldName("X-API-Token")
-
-// 获取配置的字段名
-fieldName := cfg.GetFieldName() // "X-API-Token"
-```
-
-### 令牌格式
-
-`authkratostokens` 包支持多种令牌格式，每种格式需要显式启用：
-
-```go
-tokens := map[string]string{
-    "alice": "secret-token",
+// 检查操作是否匹配
+if scope.Match("/api.Service/CreateUser") {
+    // 匹配成功
 }
 
-// 启用需要的令牌类型（默认都关闭，需要显式启用）
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithSimpleEnable().  // 启用简单格式："secret-token"
-    WithBearerEnable().  // 启用 Bearer 格式："Bearer secret-token"
-    WithBase64Enable()   // 启用 Basic Auth："Basic YWxpY2U6c2VjcmV0LXRva2Vu"
-
-// 可以只启用部分类型，如只启用 Bearer：
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithBearerEnable()  // 仅接受 "Bearer secret-token" 格式
-
-// 三种令牌格式：
-// 1. 简单格式："secret-token"
-// 2. Bearer 格式："Bearer secret-token"
-// 3. Basic Auth："Basic YWxpY2U6c2VjcmV0LXRva2Vu" ("alice:secret-token" 的 base64)
+// 反转匹配模式
+opposite := scope.Opposite()
 ```
 
-### 从上下文中提取用户名
+### Span Hook — 可插拔追踪设计
+
+下游中间件包需要 APM / 追踪支持，但基座包不应依赖具体的 APM 实现（如 Elastic APM、Jaeger、Datadog）。`SpanHook` 接口解决了这个问题：
+
+- 每个中间件通过 `WithNewSpanHook(fn)` 接受一个 `NewSpanHookFunc` **回调列表**
+- 处理请求时，中间件调用 `RunSpanHooks(ctx, hooks, spanName)` 启动追踪 span
+- 返回的清理函数通过 `defer` 调用来关闭 span
+
+这种设计使基座包与 APM 解耦。使用方通过实现 `SpanHook` 注入追踪：
 
 ```go
-import "github.com/yylego/kratos-auth/authkratostokens"
+import "github.com/yylego/kratos-auth/authkratos"
 
-// 在请求上下文中获取已认证的用户名
-username, ok := authkratostokens.GetUsername(ctx)
-if ok {
-    // 在业务逻辑中使用用户名
+// 实现 SpanHook 接口以集成具体的 APM / 追踪后端
+type mySpanHook struct {
+    span trace.Span
 }
+
+func (h *mySpanHook) Start(ctx context.Context, spanName string) {
+    _, h.span = tracer.Start(ctx, spanName)
+}
+
+func (h *mySpanHook) Close() {
+    h.span.End()
+}
+
+// 每次调用必须返回新实例（span 状态保存在内部）
+newHook := func() authkratos.SpanHook {
+    return &mySpanHook{}
+}
+
+// 在中间件代码中 — 启动钩子并在退出时清理
+cleanup := authkratos.RunSpanHooks(ctx, []authkratos.NewSpanHookFunc{newHook}, "my-span")
+defer cleanup()
 ```
+
+下游中间件包使用此模式：
+
+```go
+// 通过配置接受钩子
+cfg.WithNewSpanHook(func() authkratos.SpanHook { return &mySpanHook{} })
+
+// 中间件内部 — 自动管理 span 生命周期
+defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "rate-kratos-limits")()
+```
+
+### BooleanToNum
+
+```go
+import "github.com/yylego/kratos-auth/authkratos"
+
+// 布尔值转整数（true=1, false=0），常用于调试日志
+authkratos.BooleanToNum(true)  // 1
+authkratos.BooleanToNum(false) // 0
+```
+
+## API 一览
+
+| 类型 / 函数 | 说明 |
+| --- | --- |
+| `RouteScope` | 路由匹配范围，支持 INCLUDE/EXCLUDE 模式 |
+| `NewInclude(ops...)` | 创建仅匹配指定操作的范围 |
+| `NewExclude(ops...)` | 创建排除指定操作后匹配其他操作的范围 |
+| `RouteScope.Match(op)` | 检查操作是否在范围内 |
+| `RouteScope.Opposite()` | 返回反转模式的范围 |
+| `SelectSide` | 匹配模式常量（`INCLUDE` / `EXCLUDE`） |
+| `Operation` | 路由操作路径（string 别名） |
+| `SpanHook` | 追踪 span 接口（`Start` + `Close`） |
+| `NewSpanHookFunc` | 创建新 `SpanHook` 实例的函数类型 |
+| `RunSpanHooks(ctx, hooks, name)` | 启动钩子并返回清理函数 |
+| `BooleanToNum(b)` | 布尔值转整数（1 / 0） |
 
 ## 测试
 
 ```bash
-# 运行测试
 go test -v ./...
-
-# 运行测试并生成覆盖率报告
-go test -v -cover ./...
-
-# 运行特定包的测试
-go test -v ./authkratostokens/...
 ```
-
-## 示例
-
-查看 [internal/examples](internal/) 目录获取详细的使用示例。
 
 <!-- TEMPLATE (ZH) BEGIN: STANDARD PROJECT FOOTER -->
 <!-- VERSION 2025-11-25 03:52:28.131064 +0000 UTC -->
@@ -334,8 +167,8 @@ MIT 许可证 - 详见 [LICENSE](LICENSE)。
 新代码贡献，请遵循此流程：
 
 1. **Fork**：在 GitHub 上 Fork 仓库（使用网页界面）
-2. **克隆**：克隆 Fork 的项目（`git clone https://github.com/yourname/repo-name.git`）
-3. **导航**：进入克隆的项目（`cd repo-name`）
+2. **克隆**：克隆 Fork 的项目（`git clone https://github.com/yourname/kratos-auth.git`）
+3. **导航**：进入克隆的项目（`cd kratos-auth`）
 4. **分支**：创建功能分支（`git checkout -b feature/xxx`）
 5. **编码**：实现您的更改并编写全面的测试
 6. **测试**：（Golang 项目）确保测试通过（`go test ./...`）并遵循 Go 代码风格约定

@@ -7,7 +7,7 @@
 
 # kratos-auth
 
-Kratos authentication middleware collection with route scope management and APM tracing support.
+Foundation package providing shared types and utilities consumed across Kratos authentication middleware packages.
 
 ---
 
@@ -21,13 +21,9 @@ Kratos authentication middleware collection with route scope management and APM 
 
 ## Main Features
 
-🎯 **Token Authentication**: Simple and pre-configured token-based auth with custom validation
-⚡ **Route Scope Filtering**: Flexible INCLUDE/EXCLUDE mode route matching
-🔄 **Rate Limiting**: Redis-backed distributed rate limiting with context-based ID extraction
-🌍 **Random Sampling**: Probabilistic request sampling and blocking with configurable odds
-📋 **Timeout Management**: Selective timeout override on specific routes
-⏱️ **Periodic Throttling**: Count-based deterministic request sampling
-🔍 **APM Tracing**: Built-in APM span tracking with configurable naming
+🎯 **Route Scope Matching**: INCLUDE/EXCLUDE mode route matching with `RouteScope`, `SelectSide`, and `Operation` types
+🔌 **Span Hook Interface**: Pluggable tracing integration via `SpanHook` / `NewSpanHookFunc` / `RunSpanHooks`
+🛠️ **Shared Utilities**: Common functions such as `BooleanToNum` consumed across downstream packages
 
 ## Installation
 
@@ -35,274 +31,111 @@ Kratos authentication middleware collection with route scope management and APM 
 go get github.com/yylego/kratos-auth/authkratos
 ```
 
-## Quick Start
+## Usage
 
-### Token Authentication
-
-```go
-import (
-    "github.com/yylego/kratos-auth/authkratostokens"
-    "github.com/yylego/kratos-auth/authkratosroutes"
-)
-
-// Create auth middleware with username-token map
-cfg := authkratostokens.NewConfig(
-    authkratosroutes.NewInclude(
-        "/api.Service/CreateUser",
-        "/api.Service/UpdateUser",
-    ),
-    map[string]string{
-        "alice": "secret-token-123",
-        "bruce": "another-token-456",
-    },
-)
-
-middleware := authkratostokens.NewMiddleware(cfg, logger)
-```
-
-### Simple Custom Auth
-
-```go
-import (
-    "github.com/yylego/kratos-auth/authkratossimple"
-    "github.com/yylego/kratos-auth/authkratosroutes"
-)
-
-// Custom token validation function
-checkToken := func(ctx context.Context, token string) (context.Context, *errors.Error) {
-    // Validate token and inject account data into context
-    if account := validateToken(token); account != nil {
-        ctx = context.WithValue(ctx, "account", account)
-        return ctx, nil
-    }
-    return ctx, errors.Unauthorized("INVALID_TOKEN", "token is invalid")
-}
-
-cfg := authkratossimple.NewConfig(
-    authkratosroutes.NewInclude("/api.Service/ProtectedMethod"),
-    checkToken,
-)
-
-middleware := authkratossimple.NewMiddleware(cfg, logger)
-```
-
-### Rate Limiting
-
-```go
-import (
-    "github.com/yylego/kratos-auth/ratekratoslimits"
-    "github.com/go-redis/redis_rate/v10"
-    "github.com/redis/go-redis/v9"
-)
-
-// Redis-backed rate limiting
-rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-limiter := redis_rate.NewLimiter(rdb)
-limit := redis_rate.PerMinute(100) // 100 requests each minute
-
-// Extract unique ID from context (e.g., account ID)
-keyFromCtx := func(ctx context.Context) (string, bool) {
-    if account, ok := ctx.Value("account").(string); ok {
-        return account, true
-    }
-    return "", false
-}
-
-cfg := ratekratoslimits.NewConfig(
-    authkratosroutes.NewInclude("/api.Service/ExpensiveOperation"),
-    limiter,
-    &limit,
-    keyFromCtx,
-)
-
-middleware := ratekratoslimits.NewMiddleware(cfg, logger)
-```
-
-### Random Sampling
-
-```go
-import "github.com/yylego/kratos-auth/matchkratosrandom"
-
-// Match 60% of requests at random
-cfg := matchkratosrandom.NewConfig(
-    authkratosroutes.NewExclude("/api.Service/HealthCheck"),
-    0.6, // 60% sampling rate
-)
-
-matchFunc := matchkratosrandom.NewMatchFunc(cfg, logger)
-
-// Use with selector middleware
-middleware := selector.Server(yourMiddleware).Match(matchFunc).Build()
-```
-
-### Chaos Testing
-
-```go
-import "github.com/yylego/kratos-auth/passkratosrandom"
-
-// Block 40% of requests at random (pass-through rate: 60%)
-cfg := passkratosrandom.NewConfig(
-    authkratosroutes.NewInclude("/api.Service/TestMethod"),
-    0.6, // 60% pass rate
-)
-
-middleware := passkratosrandom.NewMiddleware(cfg, logger)
-```
-
-### Timeout Management
-
-```go
-import (
-    "github.com/yylego/kratos-auth/fastkratoshandle"
-    "time"
-)
-
-// Set 5-second timeout on specific routes
-cfg := fastkratoshandle.NewConfig(
-    authkratosroutes.NewInclude("/api.Service/QuickOperation"),
-    5*time.Second,
-)
-
-middleware := fastkratoshandle.NewMiddleware(cfg, logger)
-```
-
-### Periodic Sampling
-
-```go
-import "github.com/yylego/kratos-auth/matchkratosperiod"
-
-// Match each 10th request (10% sampling)
-cfg := matchkratosperiod.NewConfig(
-    authkratosroutes.NewExclude("/api.Service/Monitoring"),
-    10, // Period: match each 10th request
-)
-
-matchFunc := matchkratosperiod.NewMatchFunc(cfg, logger)
-```
-
-## Package Overview
-
-| Package             | Purpose                                           |
-| ------------------- | ------------------------------------------------- |
-| `authkratostokens`  | Pre-configured token auth with username-token map |
-| `authkratossimple`  | Custom token validation with flexible auth logic  |
-| `ratekratoslimits`  | Redis-backed distributed rate limiting            |
-| `passkratosrandom`  | Probabilistic request blocking (chaos testing)    |
-| `fastkratoshandle`  | Selective timeout override on specific routes     |
-| `matchkratosrandom` | Random request sampling match function            |
-| `matchkratosperiod` | Periodic request sampling (each Nth request)      |
-| `authkratosroutes`  | Route scope matching toolkit                      |
-
-## Advanced Features
-
-### Route Scope Modes
-
-```go
-// INCLUDE mode: Just match specified operations
-include := authkratosroutes.NewInclude(
-    "/api.Service/CreateUser",
-    "/api.Service/UpdateUser",
-    "/api.Service/DeleteUser",
-)
-
-// EXCLUDE mode: Match except specified operations
-exclude := authkratosroutes.NewExclude(
-    "/api.Service/HealthCheck",
-    "/api.Service/Metrics",
-)
-
-// Toggle between modes
-opposite := include.Opposite() // Converts to EXCLUDE mode
-```
-
-### APM Tracing
-
-```go
-// Enable APM tracing with default span name
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithDefaultApmSpanName() // Uses "auth-kratos-tokens"
-
-// Custom APM span name
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithApmSpanName("custom-auth-span").
-    WithApmMatchSuffix("-matching") // Suffix: "custom-auth-span-matching"
-```
-
-### Debug Mode
+### Route Scope Matching
 
 ```go
 import "github.com/yylego/kratos-auth/authkratos"
 
-// Turn on debug logging
-authkratos.SetDebugMode(true)
+// INCLUDE mode: match specified operations
+scope := authkratos.NewInclude(
+    "/api.Service/CreateUser",
+    "/api.Service/UpdateUser",
+)
 
-// Each middleware outputs extensive debug logging
-```
+// EXCLUDE mode: match everything except specified operations
+scope := authkratos.NewExclude(
+    "/api.Service/HealthCheck",
+    "/api.Service/Metrics",
+)
 
-### Request Field Configuration
-
-```go
-// Use custom request field name (default: "Authorization")
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithFieldName("X-API-Token")
-
-// Get configured field name
-fieldName := cfg.GetFieldName() // "X-API-Token"
-```
-
-### Token Formats
-
-The `authkratostokens` package supports various token formats, each must be enabled:
-
-```go
-tokens := map[string]string{
-    "alice": "secret-token",
+// Check if an operation matches
+if scope.Match("/api.Service/CreateUser") {
+    // matched
 }
 
-// Enable token types you need (disabled as default, must enable each type)
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithSimpleEnable().  // Enable simple format: "secret-token"
-    WithBearerEnable().  // Enable Bearer format: "Bearer secret-token"
-    WithBase64Enable()   // Enable Basic Auth: "Basic YWxpY2U6c2VjcmV0LXRva2Vu"
-
-// Can enable specific types, e.g., Bearer:
-cfg := authkratostokens.NewConfig(routeScope, tokens).
-    WithBearerEnable()  // Accept just "Bearer secret-token" format
-
-// Three token formats:
-// 1. Simple: "secret-token"
-// 2. Bearer: "Bearer secret-token"
-// 3. Basic Auth: "Basic YWxpY2U6c2VjcmV0LXRva2Vu" (base64 of "alice:secret-token")
+// Invert matching mode
+opposite := scope.Opposite()
 ```
 
-### Extract Username from Context
+### Span Hook — Pluggable Tracing Design
+
+Downstream middleware packages need APM / tracing support, but this base package must not depend on specific APM implementations (e.g., Elastic APM, Datadog, Zipkin). The `SpanHook` interface solves this:
+
+- Each middleware accepts a **list** of `NewSpanHookFunc` callbacks via `WithNewSpanHook(fn)`
+- When processing a request, the middleware invokes `RunSpanHooks(ctx, hooks, spanName)` to start tracing spans
+- The returned cleanup function closes spans when done
+
+This design keeps the base package APM-agnostic. Consumers inject tracing through implementing `SpanHook`:
 
 ```go
-import "github.com/yylego/kratos-auth/authkratostokens"
+import "github.com/yylego/kratos-auth/authkratos"
 
-// Get authenticated username in the request context
-username, ok := authkratostokens.GetUsername(ctx)
-if ok {
-    // Use username in business logic
+// Implement SpanHook to integrate with specific APM / tracing backends
+type mySpanHook struct {
+    span trace.Span
 }
+
+func (h *mySpanHook) Start(ctx context.Context, spanName string) {
+    _, h.span = tracer.Start(ctx, spanName)
+}
+
+func (h *mySpanHook) Close() {
+    h.span.End()
+}
+
+// Each invocation must produce a fresh instance (span state is kept inside)
+newHook := func() authkratos.SpanHook {
+    return &mySpanHook{}
+}
+
+// In middleware code — start hooks and cleanup on exit
+cleanup := authkratos.RunSpanHooks(ctx, []authkratos.NewSpanHookFunc{newHook}, "my-span")
+defer cleanup()
 ```
+
+Downstream middleware packages use this pattern:
+
+```go
+// Accept hooks via config
+cfg.WithNewSpanHook(func() authkratos.SpanHook { return &mySpanHook{} })
+
+// Inside middleware — automatic span management
+defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "rate-kratos-limits")()
+```
+
+### BooleanToNum
+
+```go
+import "github.com/yylego/kratos-auth/authkratos"
+
+// Converts boolean to int (true=1, false=0), common in debug logging
+authkratos.BooleanToNum(true)  // 1
+authkratos.BooleanToNum(false) // 0
+```
+
+## API
+
+| Type / Function | Description |
+| --- | --- |
+| `RouteScope` | Route matching scope with INCLUDE/EXCLUDE mode |
+| `NewInclude(ops...)` | Create scope that matches specified operations |
+| `NewExclude(ops...)` | Create scope that matches everything except specified operations |
+| `RouteScope.Match(op)` | Check if operation is within scope |
+| `RouteScope.Opposite()` | Produce scope with inverted mode |
+| `SelectSide` | Matching mode constant (`INCLUDE` / `EXCLUDE`) |
+| `Operation` | Route operation path (string alias) |
+| `SpanHook` | Tracing span interface (`Start` + `Close`) |
+| `NewSpanHookFunc` | Function that creates a fresh `SpanHook` instance |
+| `RunSpanHooks(ctx, hooks, name)` | Start hooks and produce cleanup function |
+| `BooleanToNum(b)` | Converts boolean to int (1 / 0) |
 
 ## Testing
 
 ```bash
-# Run tests
 go test -v ./...
-
-# Run tests with coverage
-go test -v -cover ./...
-
-# Run specific package tests
-go test -v ./authkratostokens/...
 ```
-
-## Examples
-
-See the [internal/examples](internal/) DIR on detailed usage examples.
 
 <!-- TEMPLATE (EN) BEGIN: STANDARD PROJECT FOOTER -->
 <!-- VERSION 2025-11-25 03:52:28.131064 +0000 UTC -->
@@ -334,8 +167,8 @@ Contributions are welcome! Report bugs, suggest features, and contribute code:
 New code contributions, follow this process:
 
 1. **Fork**: Fork the repo on GitHub (using the webpage UI).
-2. **Clone**: Clone the forked project (`git clone https://github.com/yourname/repo-name.git`).
-3. **Navigate**: Navigate to the cloned project (`cd repo-name`)
+2. **Clone**: Clone the forked project (`git clone https://github.com/yourname/kratos-auth.git`).
+3. **Navigate**: Navigate to the cloned project (`cd kratos-auth`)
 4. **Branch**: Create a feature branch (`git checkout -b feature/xxx`).
 5. **Code**: Implement the changes with comprehensive tests
 6. **Testing**: (Golang project) Ensure tests pass (`go test ./...`) and follow Go code style conventions

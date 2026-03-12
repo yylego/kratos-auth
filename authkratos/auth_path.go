@@ -1,17 +1,8 @@
-// Package authkratosroutes: Route scope matching toolkit with middleware selection support
-// Provides INCLUDE/EXCLUDE mode route filtering with operation set management
-// Enables flexible route-based middleware usage through selection function integration
-// Supports APM tracing and debug logging features
-//
-// authkratosroutes: 路由范围匹配工具包，支持中间件选择器
-// 提供 INCLUDE/EXCLUDE 模式的路由过滤和操作集管理
-// 通过 selector.MatchFunc 集成实现灵活的基于路由的中间件应用
-// 支持 APM 追踪和调试日志功能
-package authkratosroutes
+package authkratos
 
 import (
-	"github.com/yylego/kratos-auth/internal/utils"
-	"golang.org/x/exp/maps"
+	"maps"
+	"slices"
 )
 
 // RouteScope defines the scope of routes to match
@@ -26,7 +17,7 @@ type RouteScope struct {
 func NewInclude(operations ...Operation) *RouteScope {
 	return &RouteScope{
 		Side:         INCLUDE,
-		OperationSet: utils.NewSet(operations),
+		OperationSet: newSet(operations),
 	}
 }
 
@@ -35,7 +26,7 @@ func NewInclude(operations ...Operation) *RouteScope {
 func NewExclude(operations ...Operation) *RouteScope {
 	return &RouteScope{
 		Side:         EXCLUDE,
-		OperationSet: utils.NewSet(operations),
+		OperationSet: newSet(operations),
 	}
 }
 
@@ -57,10 +48,18 @@ func (c *RouteScope) Match(operation Operation) bool {
 func (c *RouteScope) Opposite() *RouteScope {
 	switch c.Side {
 	case INCLUDE:
-		return NewExclude(maps.Keys(c.OperationSet)...)
+		return NewExclude(slices.Collect(maps.Keys(c.OperationSet))...)
 	case EXCLUDE:
-		return NewInclude(maps.Keys(c.OperationSet)...)
+		return NewInclude(slices.Collect(maps.Keys(c.OperationSet))...)
 	default:
 		panic("unknown select-side: " + string(c.Side))
 	}
+}
+
+func newSet[T comparable](slice []T) map[T]bool {
+	set := make(map[T]bool, len(slice))
+	for _, v := range slice {
+		set[v] = true
+	}
+	return set
 }

@@ -1,4 +1,4 @@
-package authkratosroutes
+package authkratos
 
 // SelectSide represents the matching mode for RouteScope
 // SelectSide 表示 RouteScope 的匹配模式

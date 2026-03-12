@@ -1,4 +1,4 @@
-package authkratosroutes
+package authkratos
 
 // Operation represents a route operation path
 // Operation 表示路由操作路径
