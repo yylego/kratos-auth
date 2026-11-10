@@ -1,5 +1,7 @@
 package authkratos
 
+import "fmt"
+
 // SelectSide represents the matching mode for RouteScope
 // SelectSide 表示 RouteScope 的匹配模式
 type SelectSide string
@@ -18,6 +20,6 @@ func (s SelectSide) Opposite() SelectSide {
 	case EXCLUDE:
 		return INCLUDE
 	default:
-		panic("unknown select-side: " + string(s))
+		panic(fmt.Errorf("unknown select side %q", s))
 	}
 }

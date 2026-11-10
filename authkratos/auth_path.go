@@ -1,8 +1,8 @@
 package authkratos
 
 import (
+	"fmt"
 	"maps"
-	"slices"
 )
 
 // RouteScope defines the scope of routes to match
@@ -39,20 +39,16 @@ func (c *RouteScope) Match(operation Operation) bool {
 	case EXCLUDE:
 		return !c.OperationSet[operation]
 	default:
-		panic("unknown select-side: " + string(c.Side))
+		panic(fmt.Errorf("unknown select side %q", c.Side))
 	}
 }
 
-// Opposite returns a RouteScope with inverted side
-// Opposite 返回反转 side 的 RouteScope
+// Opposite returns a RouteScope with inverted side and a clone of the same operations
+// Opposite 返回反转 side 的 RouteScope，操作集合复制一份
 func (c *RouteScope) Opposite() *RouteScope {
-	switch c.Side {
-	case INCLUDE:
-		return NewExclude(slices.Collect(maps.Keys(c.OperationSet))...)
-	case EXCLUDE:
-		return NewInclude(slices.Collect(maps.Keys(c.OperationSet))...)
-	default:
-		panic("unknown select-side: " + string(c.Side))
+	return &RouteScope{
+		Side:         c.Side.Opposite(),
+		OperationSet: maps.Clone(c.OperationSet),
 	}
 }
 

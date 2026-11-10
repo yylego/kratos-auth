@@ -1,6 +1,9 @@
 package authkratos
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 // SpanHook provides tracing span lifecycle management
 // Implement Start to create and store span, implement Close to finish it
@@ -21,9 +24,11 @@ type NewSpanHookFunc func() SpanHook
 
 // RunSpanHooks starts all span hooks and returns a cleanup function
 // Caller should defer the returned function to close all hooks
+// The hooks close in the reverse of the start sequence, the same as defer, so the span started last ends first
 //
 // RunSpanHooks 启动所有 span hooks 并返回清理函数
 // 调用方应 defer 返回的函数来关闭所有 hooks
+// 按启动的反序关闭，与 defer 一致，后启动的 span 先结束
 func RunSpanHooks(ctx context.Context, spanHooks []NewSpanHookFunc, spanName string) func() {
 	hooks := make([]SpanHook, 0, len(spanHooks))
 	for _, newHook := range spanHooks {
@@ -32,7 +37,7 @@ func RunSpanHooks(ctx context.Context, spanHooks []NewSpanHookFunc, spanName str
 		hooks = append(hooks, hook)
 	}
 	return func() {
-		for _, hook := range hooks {
+		for _, hook := range slices.Backward(hooks) {
 			hook.Close()
 		}
 	}

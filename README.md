@@ -1,13 +1,17 @@
+<!-- TEMPLATE (EN) BEGIN: BADGES -->
+
 [![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/yylego/kratos-auth/release.yml?branch=main&label=BUILD)](https://github.com/yylego/kratos-auth/actions/workflows/release.yml?query=branch%3Amain)
 [![GoDoc](https://pkg.go.dev/badge/github.com/yylego/kratos-auth)](https://pkg.go.dev/github.com/yylego/kratos-auth)
 [![Coverage Status](https://img.shields.io/coveralls/github/yylego/kratos-auth/main.svg)](https://coveralls.io/github/yylego/kratos-auth?branch=main)
-[![Supported Go Versions](https://img.shields.io/badge/Go-1.25+-lightgrey.svg)](https://go.dev/)
+[![Supported Go Versions](https://img.shields.io/badge/Go-1.25%2B-lightgrey.svg)](https://go.dev/)
 [![GitHub Release](https://img.shields.io/github/release/yylego/kratos-auth.svg)](https://github.com/yylego/kratos-auth/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/yylego/kratos-auth)](https://goreportcard.com/report/github.com/yylego/kratos-auth)
 
+<!-- TEMPLATE (EN) CLOSE: BADGES -->
+
 # kratos-auth
 
-Foundation package providing shared types and utilities consumed across Kratos authentication middleware packages.
+Foundation package providing the shared route scope and span hook types consumed across Kratos authentication middleware packages.
 
 ---
 
@@ -17,13 +21,12 @@ Foundation package providing shared types and utilities consumed across Kratos a
 
 [中文说明](README.zh.md)
 
-<!-- TEMPLATE (EN) END: LANGUAGE NAVIGATION -->
+<!-- TEMPLATE (EN) CLOSE: LANGUAGE NAVIGATION -->
 
 ## Main Features
 
-🎯 **Route Scope Matching**: INCLUDE/EXCLUDE mode route matching with `RouteScope`, `SelectSide`, and `Operation` types
-🔌 **Span Hook Interface**: Pluggable tracing integration via `SpanHook` / `NewSpanHookFunc` / `RunSpanHooks`
-🛠️ **Shared Utilities**: Common functions such as `BooleanToNum` consumed across downstream packages
+- 🎯 **Route Scope Matching**: INCLUDE/EXCLUDE mode route matching with `RouteScope`, `SelectSide`, and `Operation` types
+- 🔌 **Span Hook Interface**: Pluggable tracing integration via `SpanHook` / `NewSpanHookFunc` / `RunSpanHooks`
 
 ## Installation
 
@@ -39,24 +42,26 @@ go get github.com/yylego/kratos-auth/authkratos
 import "github.com/yylego/kratos-auth/authkratos"
 
 // INCLUDE mode: match specified operations
-scope := authkratos.NewInclude(
+includeScope := authkratos.NewInclude(
     "/api.Service/CreateUser",
     "/api.Service/UpdateUser",
 )
 
 // EXCLUDE mode: match everything except specified operations
-scope := authkratos.NewExclude(
+excludeScope := authkratos.NewExclude(
     "/api.Service/HealthCheck",
     "/api.Service/Metrics",
 )
 
 // Check if an operation matches
-if scope.Match("/api.Service/CreateUser") {
-    // matched
+if includeScope.Match("/api.Service/CreateUser") && excludeScope.Match("/api.Service/CreateUser") {
+    // both match: CreateUser is in the include list and not in the exclude list
 }
 
-// Invert matching mode
-opposite := scope.Opposite()
+// Invert matching mode: the include scope turns into an exclude scope on the same operations
+if !includeScope.Opposite().Match("/api.Service/CreateUser") {
+    // skipped: the inverted scope excludes CreateUser
+}
 ```
 
 ### Span Hook — Pluggable Tracing Design
@@ -65,7 +70,7 @@ Downstream middleware packages need APM / tracing support, but this base package
 
 - Each middleware accepts a **list** of `NewSpanHookFunc` callbacks via `WithNewSpanHook(fn)`
 - When processing a request, the middleware invokes `RunSpanHooks(ctx, hooks, spanName)` to start tracing spans
-- The returned cleanup function closes spans when done
+- The returned cleanup function, called via `defer`, closes the spans in the reverse of the start sequence, so the span started last ends first
 
 This design keeps the base package APM-agnostic. Consumers inject tracing through implementing `SpanHook`:
 
@@ -105,31 +110,20 @@ cfg.WithNewSpanHook(func() authkratos.SpanHook { return &mySpanHook{} })
 defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "rate-kratos-limits")()
 ```
 
-### BooleanToNum
-
-```go
-import "github.com/yylego/kratos-auth/authkratos"
-
-// Converts boolean to int (true=1, false=0), common in debug logging
-authkratos.BooleanToNum(true)  // 1
-authkratos.BooleanToNum(false) // 0
-```
-
 ## API
 
-| Type / Function | Description |
-| --- | --- |
-| `RouteScope` | Route matching scope with INCLUDE/EXCLUDE mode |
-| `NewInclude(ops...)` | Create scope that matches specified operations |
-| `NewExclude(ops...)` | Create scope that matches everything except specified operations |
-| `RouteScope.Match(op)` | Check if operation is within scope |
-| `RouteScope.Opposite()` | Produce scope with inverted mode |
-| `SelectSide` | Matching mode constant (`INCLUDE` / `EXCLUDE`) |
-| `Operation` | Route operation path (string alias) |
-| `SpanHook` | Tracing span interface (`Start` + `Close`) |
-| `NewSpanHookFunc` | Function that creates a fresh `SpanHook` instance |
-| `RunSpanHooks(ctx, hooks, name)` | Start hooks and produce cleanup function |
-| `BooleanToNum(b)` | Converts boolean to int (1 / 0) |
+| Type / Function                  | Description                                                      |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `RouteScope`                     | Route matching scope with INCLUDE/EXCLUDE mode                   |
+| `NewInclude(ops...)`             | Create scope that matches specified operations                   |
+| `NewExclude(ops...)`             | Create scope that matches everything except specified operations |
+| `RouteScope.Match(op)`           | Check if operation is within scope                               |
+| `RouteScope.Opposite()`          | Produce scope with inverted mode                                 |
+| `SelectSide`                     | Matching mode constant (`INCLUDE` / `EXCLUDE`)                   |
+| `Operation`                      | Route operation path (string alias)                              |
+| `SpanHook`                       | Tracing span interface (`Start` + `Close`)                       |
+| `NewSpanHookFunc`                | Function that creates a fresh `SpanHook` instance                |
+| `RunSpanHooks(ctx, hooks, name)` | Start hooks and produce cleanup function                         |
 
 ## Testing
 
@@ -167,8 +161,8 @@ Contributions are welcome! Report bugs, suggest features, and contribute code:
 New code contributions, follow this process:
 
 1. **Fork**: Fork the repo on GitHub (using the webpage UI).
-2. **Clone**: Clone the forked project (`git clone https://github.com/yourname/kratos-auth.git`).
-3. **Navigate**: Navigate to the cloned project (`cd kratos-auth`)
+2. **Clone**: Clone the forked project (`git clone https://github.com/yourname/repo-name.git`).
+3. **Navigate**: Navigate to the cloned project (`cd repo-name`)
 4. **Branch**: Create a feature branch (`git checkout -b feature/xxx`).
 5. **Code**: Implement the changes with comprehensive tests
 6. **Testing**: (Golang project) Ensure tests pass (`go test ./...`) and follow Go code style conventions
@@ -195,10 +189,4 @@ Welcome to contribute to this project via submitting merge requests and reportin
 
 **Have Fun Coding with this package!** 🎉🎉🎉
 
-<!-- TEMPLATE (EN) END: STANDARD PROJECT FOOTER -->
-
----
-
-## GitHub Stars
-
-[![Stargazers](https://starchart.cc/yylego/kratos-auth.svg?variant=adaptive)](https://starchart.cc/yylego/kratos-auth)
+<!-- TEMPLATE (EN) CLOSE: STANDARD PROJECT FOOTER -->

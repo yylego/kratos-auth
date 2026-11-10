@@ -8,46 +8,44 @@ import (
 )
 
 type mockSpanHook struct {
-	started  bool
-	closed   bool
+	name     string
 	spanName string
+	events   *[]string // Shared start and close events, kept as each one happens // 所有 hook 共用的启动与关闭事件，按发生顺序记
 }
 
 func (h *mockSpanHook) Start(ctx context.Context, spanName string) {
-	h.started = true
 	h.spanName = spanName
+	*h.events = append(*h.events, "start "+h.name)
 }
 
 func (h *mockSpanHook) Close() {
-	h.closed = true
+	*h.events = append(*h.events, "close "+h.name)
 }
 
 func TestRunSpanHooks(t *testing.T) {
+	var events []string
 	var hooks []*mockSpanHook
-
-	newHookFunc := func() SpanHook {
-		hook := &mockSpanHook{}
-		hooks = append(hooks, hook)
-		return hook
+	newHookFunc := func(name string) NewSpanHookFunc {
+		return func() SpanHook {
+			hook := &mockSpanHook{name: name, events: &events}
+			hooks = append(hooks, hook)
+			return hook
+		}
 	}
 
-	cleanup := RunSpanHooks(context.Background(), []NewSpanHookFunc{newHookFunc, newHookFunc}, "test-span")
-
-	require.Len(t, hooks, 2)
+	cleanup := RunSpanHooks(context.Background(), []NewSpanHookFunc{newHookFunc("parent"), newHookFunc("child")}, "test-span")
+	require.Equal(t, []string{"start parent", "start child"}, events)
 	for _, hook := range hooks {
-		require.True(t, hook.started)
 		require.Equal(t, "test-span", hook.spanName)
-		require.False(t, hook.closed)
 	}
 
+	// The span started last ends first, the same as defer
+	// 后启动的 span 先结束，与 defer 一致
 	cleanup()
-
-	for _, hook := range hooks {
-		require.True(t, hook.closed)
-	}
+	require.Equal(t, []string{"start parent", "start child", "close child", "close parent"}, events)
 }
 
-func TestRunSpanHooksEmpty(t *testing.T) {
+func TestRunSpanHooks_Empty(t *testing.T) {
 	cleanup := RunSpanHooks(context.Background(), nil, "empty-span")
-	cleanup() // should not panic
+	require.NotPanics(t, cleanup)
 }
