@@ -11,7 +11,7 @@
 
 # kratos-auth
 
-Kratos 认证中间件的基座包，提供各中间件共用的路由范围和 span 钩子类型。
+Kratos 中间件的基座包，提供各中间件共用的路由范围类型：每个中间件用它选出自己要作用的路由。
 
 ---
 
@@ -26,7 +26,6 @@ Kratos 认证中间件的基座包，提供各中间件共用的路由范围和 
 ## 核心特性
 
 - 🎯 **路由范围匹配**: 基于 INCLUDE/EXCLUDE 模式的路由匹配，提供 `RouteScope`、`SelectSide`、`Operation` 类型
-- 🔌 **Span Hook 接口**: 可插拔的追踪集成，通过 `SpanHook` / `NewSpanHookFunc` / `RunSpanHooks` 实现
 
 ## 安装
 
@@ -64,66 +63,17 @@ if !includeScope.Opposite().Match("/api.Service/CreateUser") {
 }
 ```
 
-### Span Hook — 可插拔追踪设计
-
-下游中间件包需要 APM / 追踪支持，但基座包不应依赖具体的 APM 实现（如 Elastic APM、Jaeger、Datadog）。`SpanHook` 接口解决了这个问题：
-
-- 每个中间件通过 `WithNewSpanHook(fn)` 接受一个 `NewSpanHookFunc` **回调列表**
-- 处理请求时，中间件调用 `RunSpanHooks(ctx, hooks, spanName)` 启动追踪 span
-- 返回的清理函数通过 `defer` 调用，按启动的反序关闭 span，后启动的先结束
-
-这种设计使基座包与 APM 解耦。使用方通过实现 `SpanHook` 注入追踪：
-
-```go
-import "github.com/yylego/kratos-auth/authkratos"
-
-// 实现 SpanHook 接口以集成具体的 APM / 追踪后端
-type mySpanHook struct {
-    span trace.Span
-}
-
-func (h *mySpanHook) Start(ctx context.Context, spanName string) {
-    _, h.span = tracer.Start(ctx, spanName)
-}
-
-func (h *mySpanHook) Close() {
-    h.span.End()
-}
-
-// 每次调用必须返回新实例（span 状态保存在内部）
-newHook := func() authkratos.SpanHook {
-    return &mySpanHook{}
-}
-
-// 在中间件代码中 — 启动钩子并在退出时清理
-cleanup := authkratos.RunSpanHooks(ctx, []authkratos.NewSpanHookFunc{newHook}, "my-span")
-defer cleanup()
-```
-
-下游中间件包使用此模式：
-
-```go
-// 通过配置接受钩子
-cfg.WithNewSpanHook(func() authkratos.SpanHook { return &mySpanHook{} })
-
-// 中间件内部 — 自动管理 span 生命周期
-defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "rate-kratos-limits")()
-```
-
 ## API 一览
 
-| 类型 / 函数                      | 说明                                    |
-| -------------------------------- | --------------------------------------- |
-| `RouteScope`                     | 路由匹配范围，支持 INCLUDE/EXCLUDE 模式 |
-| `NewInclude(ops...)`             | 创建仅匹配指定操作的范围                |
-| `NewExclude(ops...)`             | 创建排除指定操作后匹配其他操作的范围    |
-| `RouteScope.Match(op)`           | 检查操作是否在范围内                    |
-| `RouteScope.Opposite()`          | 返回反转模式的范围                      |
-| `SelectSide`                     | 匹配模式常量（`INCLUDE` / `EXCLUDE`）   |
-| `Operation`                      | 路由操作路径（string 别名）             |
-| `SpanHook`                       | 追踪 span 接口（`Start` + `Close`）     |
-| `NewSpanHookFunc`                | 创建新 `SpanHook` 实例的函数类型        |
-| `RunSpanHooks(ctx, hooks, name)` | 启动钩子并返回清理函数                  |
+| 类型 / 函数             | 说明                                    |
+| ----------------------- | --------------------------------------- |
+| `RouteScope`            | 路由匹配范围，支持 INCLUDE/EXCLUDE 模式 |
+| `NewInclude(ops...)`    | 创建仅匹配指定操作的范围                |
+| `NewExclude(ops...)`    | 创建排除指定操作后匹配其他操作的范围    |
+| `RouteScope.Match(op)`  | 检查操作是否在范围内                    |
+| `RouteScope.Opposite()` | 返回反转模式的范围                      |
+| `SelectSide`            | 匹配模式常量（`INCLUDE` / `EXCLUDE`）   |
+| `Operation`             | 路由操作路径（string 别名）             |
 
 ## 测试
 

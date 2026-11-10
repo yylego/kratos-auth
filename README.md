@@ -11,7 +11,7 @@
 
 # kratos-auth
 
-Foundation package providing the shared route scope and span hook types consumed across Kratos authentication middleware packages.
+Foundation package providing the shared route scope type consumed across Kratos middleware packages: each middleware uses it to pick the routes it acts on.
 
 ---
 
@@ -26,7 +26,6 @@ Foundation package providing the shared route scope and span hook types consumed
 ## Main Features
 
 - 🎯 **Route Scope Matching**: INCLUDE/EXCLUDE mode route matching with `RouteScope`, `SelectSide`, and `Operation` types
-- 🔌 **Span Hook Interface**: Pluggable tracing integration via `SpanHook` / `NewSpanHookFunc` / `RunSpanHooks`
 
 ## Installation
 
@@ -64,66 +63,17 @@ if !includeScope.Opposite().Match("/api.Service/CreateUser") {
 }
 ```
 
-### Span Hook — Pluggable Tracing Design
-
-Downstream middleware packages need APM / tracing support, but this base package must not depend on specific APM implementations (e.g., Elastic APM, Datadog, Zipkin). The `SpanHook` interface solves this:
-
-- Each middleware accepts a **list** of `NewSpanHookFunc` callbacks via `WithNewSpanHook(fn)`
-- When processing a request, the middleware invokes `RunSpanHooks(ctx, hooks, spanName)` to start tracing spans
-- The returned cleanup function, called via `defer`, closes the spans in the reverse of the start sequence, so the span started last ends first
-
-This design keeps the base package APM-agnostic. Consumers inject tracing through implementing `SpanHook`:
-
-```go
-import "github.com/yylego/kratos-auth/authkratos"
-
-// Implement SpanHook to integrate with specific APM / tracing backends
-type mySpanHook struct {
-    span trace.Span
-}
-
-func (h *mySpanHook) Start(ctx context.Context, spanName string) {
-    _, h.span = tracer.Start(ctx, spanName)
-}
-
-func (h *mySpanHook) Close() {
-    h.span.End()
-}
-
-// Each invocation must produce a fresh instance (span state is kept inside)
-newHook := func() authkratos.SpanHook {
-    return &mySpanHook{}
-}
-
-// In middleware code — start hooks and cleanup on exit
-cleanup := authkratos.RunSpanHooks(ctx, []authkratos.NewSpanHookFunc{newHook}, "my-span")
-defer cleanup()
-```
-
-Downstream middleware packages use this pattern:
-
-```go
-// Accept hooks via config
-cfg.WithNewSpanHook(func() authkratos.SpanHook { return &mySpanHook{} })
-
-// Inside middleware — automatic span management
-defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "rate-kratos-limits")()
-```
-
 ## API
 
-| Type / Function                  | Description                                                      |
-| -------------------------------- | ---------------------------------------------------------------- |
-| `RouteScope`                     | Route matching scope with INCLUDE/EXCLUDE mode                   |
-| `NewInclude(ops...)`             | Create scope that matches specified operations                   |
-| `NewExclude(ops...)`             | Create scope that matches everything except specified operations |
-| `RouteScope.Match(op)`           | Check if operation is within scope                               |
-| `RouteScope.Opposite()`          | Produce scope with inverted mode                                 |
-| `SelectSide`                     | Matching mode constant (`INCLUDE` / `EXCLUDE`)                   |
-| `Operation`                      | Route operation path (string alias)                              |
-| `SpanHook`                       | Tracing span interface (`Start` + `Close`)                       |
-| `NewSpanHookFunc`                | Function that creates a fresh `SpanHook` instance                |
-| `RunSpanHooks(ctx, hooks, name)` | Start hooks and produce cleanup function                         |
+| Type / Function         | Description                                                      |
+| ----------------------- | ---------------------------------------------------------------- |
+| `RouteScope`            | Route matching scope with INCLUDE/EXCLUDE mode                   |
+| `NewInclude(ops...)`    | Create scope that matches specified operations                   |
+| `NewExclude(ops...)`    | Create scope that matches everything except specified operations |
+| `RouteScope.Match(op)`  | Check if operation is within scope                               |
+| `RouteScope.Opposite()` | Produce scope with inverted mode                                 |
+| `SelectSide`            | Matching mode constant (`INCLUDE` / `EXCLUDE`)                   |
+| `Operation`             | Route operation path (string alias)                              |
 
 ## Testing
 
